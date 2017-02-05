@@ -137,11 +137,13 @@ xfpm_settings_app_launch (GApplication *app)
     gboolean can_hibernate;
     gboolean can_shutdown;
     gboolean has_lcd_brightness;
+    gboolean has_kbd_brightness;
     gboolean has_sleep_button;
     gboolean has_hibernate_button;
     gboolean has_power_button;
     gboolean has_lid;
     gboolean start_xfpm_if_not_running;
+    gint     max_kbd_brightness;
 
     TRACE ("entering");
 
@@ -241,14 +243,16 @@ xfpm_settings_app_launch (GApplication *app)
     has_power_button = xfpm_string_to_bool (g_hash_table_lookup (hash, "power-button"));
     has_hibernate_button = xfpm_string_to_bool (g_hash_table_lookup (hash, "hibernate-button"));
     can_shutdown = xfpm_string_to_bool (g_hash_table_lookup (hash, "can-shutdown"));
+    max_kbd_brightness = (gint)g_ascii_strtod(g_hash_table_lookup (hash, "max-kbd-brightness"), NULL);
+
 
     DBG("socket_id %i", (int)priv->socket_id);
     DBG("device id %s", priv->device_id);
 
     dialog = xfpm_settings_dialog_new (channel, auth_suspend, auth_hibernate,
                                        can_suspend, can_hibernate, can_shutdown, has_battery, has_lcd_brightness,
-                                       has_lid, has_sleep_button, has_hibernate_button, has_power_button,
-                                       priv->socket_id, priv->device_id, GTK_APPLICATION (app));
+                                       max_kbd_brightness, has_lid, has_sleep_button, has_hibernate_button,
+                                       has_power_button, priv->socket_id, priv->device_id, GTK_APPLICATION (app));
 
     g_hash_table_destroy (hash);
 

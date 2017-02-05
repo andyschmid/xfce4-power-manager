@@ -87,6 +87,7 @@ xfpm_dump (GHashTable *hash)
     gboolean can_hibernate;
     gboolean can_shutdown;
     gboolean has_lcd_brightness;
+    gboolean has_kbd_brightness;
     gboolean has_sleep_button;
     gboolean has_hibernate_button;
     gboolean has_power_button;
@@ -99,6 +100,7 @@ xfpm_dump (GHashTable *hash)
     auth_suspend = xfpm_string_to_bool (g_hash_table_lookup (hash, "auth-suspend"));
     auth_hibernate = xfpm_string_to_bool (g_hash_table_lookup (hash, "auth-hibernate"));
     has_lcd_brightness = xfpm_string_to_bool (g_hash_table_lookup (hash, "has-brightness"));
+    has_kbd_brightness = (gboolean)g_ascii_strtod(g_hash_table_lookup (hash, "max-kbd-brightness"), NULL);
     has_sleep_button = xfpm_string_to_bool (g_hash_table_lookup (hash, "sleep-button"));
     has_power_button = xfpm_string_to_bool (g_hash_table_lookup (hash, "power-button"));
     has_hibernate_button = xfpm_string_to_bool (g_hash_table_lookup (hash, "hibernate-button"));
@@ -128,6 +130,7 @@ xfpm_dump (GHashTable *hash)
 	      "%s: %s\n"
 	      "%s: %s\n"
 	      "%s: %s\n",
+          "%s: %s\n",
 	     _("Can suspend"),
 	     xfpm_bool_to_local_string (can_suspend),
 	     _("Can hibernate"),
@@ -142,6 +145,8 @@ xfpm_dump (GHashTable *hash)
 	     xfpm_bool_to_local_string (has_battery),
 	     _("Has brightness panel"),
 	     xfpm_bool_to_local_string (has_lcd_brightness),
+         _("Has keyboard brightness panel"),
+         xfpm_bool_to_local_string (has_kbd_brightness),
 	     _("Has power button"),
 	     xfpm_bool_to_local_string (has_power_button),
 	     _("Has hibernate button"),

@@ -50,6 +50,8 @@ XfpmKbdBacklight               *xfpm_kbd_backlight_new              (void);
 
 gboolean                        xfpm_kbd_backlight_has_hw           (XfpmKbdBacklight *backlight);
 
+gint                            xfpm_kbd_backlight_get_max_level    (XfpmKbdBacklight *backlight);
+
 G_END_DECLS
 
 #endif /* __XFPM_KBD_BACKLIGHT_H */

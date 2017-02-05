@@ -92,6 +92,14 @@ enum
     PROP_LOGIND_HANDLE_HIBERNATE_KEY,
     PROP_LOGIND_HANDLE_LID_SWITCH,
     PROP_HEARTBEAT_COMMAND,
+
+    PROP_KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+    PROP_KBD_BRIGHTNESS_LEVEL_ON_AC,
+    PROP_KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM,
+    PROP_KBD_BRIGHTNESS_LEVEL_ON_AC_DIM,
+    PROP_KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT,
+    PROP_KBD_BRIGHTNESS_ON_AC_TIMEOUT,
+
     N_PROPERTIES
 };
 
@@ -606,6 +614,81 @@ xfpm_xfconf_class_init (XfpmXfconfClass *klass)
                                                            NULL, NULL,
                                                            NULL,
                                                            G_PARAM_READWRITE));
+
+    /**
+    * XfpmXfconf::kbd-brightness-level-on-ac
+    **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_LEVEL_ON_AC,
+                                     g_param_spec_uint  (KBD_BRIGHTNESS_LEVEL_ON_AC,
+                                                         NULL, NULL,
+                                                         0,
+                                                         100,
+                                                         0,
+                                                         G_PARAM_READWRITE));
+
+    /**
+     * XfpmXfconf::kbd-brightness-level-on-battery
+     **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+                                     g_param_spec_uint  (KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+                                                         NULL, NULL,
+                                                         0,
+                                                         100,
+                                                         0,
+                                                         G_PARAM_READWRITE));
+
+
+    /**
+    * XfpmXfconf::kbd-brightness-level-on-ac-dim
+    **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_LEVEL_ON_AC_DIM,
+                                     g_param_spec_uint  (KBD_BRIGHTNESS_LEVEL_ON_AC_DIM,
+                                                         NULL, NULL,
+                                                         0,
+                                                         100,
+                                                         0,
+                                                         G_PARAM_READWRITE));
+
+    /**
+     * XfpmXfconf::kbd-brightness-level-on-battery-dim
+     **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM,
+                                     g_param_spec_uint  (KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM,
+                                                         NULL, NULL,
+                                                         0,
+                                                         100,
+                                                         0,
+                                                         G_PARAM_READWRITE));
+
+
+
+    /**
+     * XfpmXfconf::kbd-brightness-inactivity-on-ac
+     **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_ON_AC_TIMEOUT,
+                                     g_param_spec_uint (KBD_BRIGHTNESS_ON_AC_TIMEOUT,
+                                                        NULL, NULL,
+                                                        9,
+                                                        G_MAXUINT,
+                                                        9,
+                                                        G_PARAM_READWRITE));
+
+    /**
+     * XfpmXfconf::kbd-brightness-inactivity-on-battery
+     **/
+    g_object_class_install_property (object_class,
+                                     PROP_KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT,
+                                     g_param_spec_uint (KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT,
+                                                        NULL, NULL,
+                                                        9,
+                                                        G_MAXUINT,
+                                                        120,
+                                                        G_PARAM_READWRITE));
 
     g_type_class_add_private (klass, sizeof (XfpmXfconfPrivate));
 }

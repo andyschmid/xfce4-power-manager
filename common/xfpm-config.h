@@ -79,6 +79,13 @@ G_BEGIN_DECLS
 #define SHOW_BRIGHTNESS_POPUP                "show-brightness-popup"
 #define SHOW_PANEL_LABEL                     "show-panel-label"
 
+#define KBD_BRIGHTNESS_LEVEL_ON_BATTERY      "kbd-brightness-level-on-battery"
+#define KBD_BRIGHTNESS_LEVEL_ON_AC           "kbd-brightness-level-on-ac"
+#define KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM  "kbd-brightness-level-on-ac-dim"
+#define KBD_BRIGHTNESS_LEVEL_ON_AC_DIM       "kbd-brightness-level-on-battery-dim"
+#define KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT    "kbd-brightness-inactivity-on-battery"
+#define KBD_BRIGHTNESS_ON_AC_TIMEOUT         "kbd-brightness-inactivity-on-ac"
+
 G_END_DECLS
 
 #endif /* __XFPM_CONFIG_H */

@@ -101,6 +101,28 @@ enum
 /*
  * GtkBuilder callbacks
  */
+gchar      *format_kbd_brightness_percentage_cb     (GtkScale *scale,
+                                                    gdouble value,
+                                                    gpointer data);
+
+void        kbd_brightness_level_on_ac (GtkWidget *w,
+                            XfconfChannel *channel);
+
+void        kbd_brightness_level_on_battery (GtkWidget *w,
+                            XfconfChannel *channel);
+
+void        kbd_brightness_level_on_ac_dim (GtkWidget *w,
+                            XfconfChannel *channel);
+
+void        kbd_brightness_level_on_battery_dim (GtkWidget *w,
+                            XfconfChannel *channel);
+
+void        kbd_brightness_level_on_battery_timeout (GtkWidget *w,
+                            XfconfChannel *channel);
+
+void        kbd_brightness_level_on_ac_timeout (GtkWidget *w,
+                            XfconfChannel *channel);
+
 void	    brightness_level_on_ac		   (GtkWidget *w,
 						    XfconfChannel *channel);
 
@@ -207,6 +229,76 @@ void        light_locker_automatic_locking_changed_cb (GtkWidget *w,
 
 void        xfpm_update_logind_handle_lid_switch   (XfconfChannel *channel);
 /* END Light Locker Integration */
+
+gchar *
+format_kbd_brightness_percentage_cb (GtkScale *scale, gdouble value, gpointer data)
+{
+    gdouble max = gtk_adjustment_get_upper (gtk_range_get_adjustment (GTK_RANGE (scale)));
+    gfloat percent = 100.0 * ((gfloat)value / (gfloat)max);
+    return g_strdup_printf ("%d %s", (int)percent, _("%"));
+}
+
+void kbd_brightness_level_on_ac (GtkWidget *w,  XfconfChannel *channel)
+{
+    guint val = (guint) gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC, val) )
+    {
+        g_critical ("Unable to set value %u for property %s\n", val, KBD_BRIGHTNESS_LEVEL_ON_AC);
+    }
+}
+
+void kbd_brightness_level_on_battery (GtkWidget *w,  XfconfChannel *channel)
+{
+    guint val = (guint) gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY, val) )
+    {
+        g_critical ("Unable to set value %u for property %s\n", val, KBD_BRIGHTNESS_LEVEL_ON_BATTERY);
+    }
+}
+
+void kbd_brightness_level_on_ac_dim (GtkWidget *w,  XfconfChannel *channel)
+{
+    guint val = (guint) gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC_DIM, val) )
+    {
+        g_critical ("Unable to set value %u for property %s\n", val, KBD_BRIGHTNESS_LEVEL_ON_AC_DIM);
+    }
+}
+
+void kbd_brightness_level_on_battery_dim (GtkWidget *w,  XfconfChannel *channel)
+{
+    guint val = (guint) gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM, val) )
+    {
+        g_critical ("Unable to set value %u for property %s\n", val, KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM);
+    }
+}
+
+void
+kbd_brightness_level_on_battery_timeout (GtkWidget *w, XfconfChannel *channel)
+{
+    gint value    = (gint)gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT, value))
+    {
+        g_critical ("Cannot set value for property %s\n", KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT);
+    }
+}
+
+void
+kbd_brightness_level_on_ac_timeout (GtkWidget *w, XfconfChannel *channel)
+{
+    gint value    = (gint)gtk_range_get_value (GTK_RANGE (w));
+
+    if (!xfconf_channel_set_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_ON_AC_TIMEOUT, value))
+    {
+        g_critical ("Cannot set value for property %s\n", KBD_BRIGHTNESS_ON_AC_TIMEOUT);
+    }
+}
 
 void brightness_level_on_ac (GtkWidget *w,  XfconfChannel *channel)
 {
@@ -818,7 +910,8 @@ static void
 xfpm_settings_on_battery (XfconfChannel *channel, gboolean auth_suspend,
                           gboolean auth_hibernate, gboolean can_suspend,
                           gboolean can_hibernate, gboolean can_shutdown,
-                          gboolean has_lcd_brightness, gboolean has_lid)
+                          gboolean has_lcd_brightness, gint max_kbd_brightness,
+                          gboolean has_lid)
 {
     gboolean valid, handle_dpms;
     gint list_value;
@@ -831,6 +924,7 @@ xfpm_settings_on_battery (XfconfChannel *channel, gboolean auth_suspend,
     GtkWidget *label;
     GtkWidget *brg;
     GtkWidget *brg_level;
+    GtkWidget *brg_level_dim;
 
     /*
      * Inactivity sleep mode on battery
@@ -1038,13 +1132,43 @@ xfpm_settings_on_battery (XfconfChannel *channel, gboolean auth_suspend,
     gtk_widget_hide (brg_level);
     }
 
+    /*
+     * Keyboard Brightness on battery
+    */
+    brg_level = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-battery"));
+    brg = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-inactivity-on-battery"));
+    brg_level_dim = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-battery-dim"));
+    if ( max_kbd_brightness )
+    {
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY, 0);
+        gtk_range_set_range (GTK_RANGE (brg_level), 0, max_kbd_brightness);
+        gtk_range_set_value (GTK_RANGE (brg_level), val);
+
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT, 120);
+        gtk_range_set_value (GTK_RANGE(brg), val);
+
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM, 0);
+        gtk_range_set_range (GTK_RANGE (brg_level_dim), 0, max_kbd_brightness);
+        gtk_range_set_value (GTK_RANGE (brg_level_dim), val);
+
+        xfconf_g_property_bind (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+                G_TYPE_INT, gtk_range_get_adjustment (GTK_RANGE (brg_level)),
+                "value");
+    }
+    else
+    {
+        gtk_widget_hide (brg);
+        gtk_widget_hide (brg_level);
+        gtk_widget_hide (brg_level_dim);
+    }
+
 }
 
 static void
 xfpm_settings_on_ac (XfconfChannel *channel, gboolean auth_suspend,
                      gboolean auth_hibernate, gboolean can_suspend,
                      gboolean can_hibernate, gboolean has_lcd_brightness,
-                     gboolean has_lid)
+                     gint max_kbd_brightness, gboolean has_lid)
 {
     gboolean valid, handle_dpms;
     GtkWidget *inact_timeout, *inact_action;
@@ -1053,6 +1177,7 @@ xfpm_settings_on_ac (XfconfChannel *channel, gboolean auth_suspend,
     GtkWidget *frame;
     GtkWidget *brg;
     GtkWidget *brg_level;
+    GtkWidget *brg_level_dim;
     GtkListStore *list_store;
     GtkTreeIter iter;
     guint val;
@@ -1216,6 +1341,36 @@ xfpm_settings_on_ac (XfconfChannel *channel, gboolean auth_suspend,
 	gtk_widget_hide (brg);
 	gtk_widget_hide (brg_level);
 	}
+
+    /*
+     * Keyboard Brightness on AC
+    */
+    brg_level = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-ac"));
+    brg = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-inactivity-on-ac"));
+    brg_level_dim = GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-ac-dim"));
+    if ( max_kbd_brightness )
+    {
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC, 0);
+        gtk_range_set_range (GTK_RANGE (brg_level), 0, max_kbd_brightness);
+        gtk_range_set_value (GTK_RANGE (brg_level), val);
+
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_ON_AC_TIMEOUT, 120);
+        gtk_range_set_value (GTK_RANGE(brg), val);
+
+        val = xfconf_channel_get_uint (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC_DIM, 0);
+        gtk_range_set_range (GTK_RANGE (brg_level_dim), 0, max_kbd_brightness);
+        gtk_range_set_value (GTK_RANGE (brg_level_dim), val);
+
+        xfconf_g_property_bind (channel, PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC,
+                G_TYPE_INT, gtk_range_get_adjustment (GTK_RANGE (brg_level)),
+                "value");
+    }
+    else
+    {
+        gtk_widget_hide (brg);
+        gtk_widget_hide (brg_level);
+        gtk_widget_hide (brg_level_dim);
+    }
 
 }
 
@@ -2175,9 +2330,10 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
                           gboolean auth_hibernate, gboolean can_suspend,
                           gboolean can_hibernate, gboolean can_shutdown,
                           gboolean has_battery, gboolean has_lcd_brightness,
-                          gboolean has_lid, gboolean has_sleep_button,
-                          gboolean has_hibernate_button, gboolean has_power_button,
-                          Window id, gchar *device_id, GtkApplication *gtk_app)
+                          gint max_kbd_brightness, gboolean has_lid,
+                          gboolean has_sleep_button, gboolean has_hibernate_button,
+                          gboolean has_power_button, Window id, gchar *device_id,
+                          GtkApplication *gtk_app)
 {
     GtkWidget *plug;
     GtkWidget *parent;
@@ -2195,14 +2351,14 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
     guint val;
 
     XFPM_DEBUG ("auth_hibernate=%s auth_suspend=%s can_shutdown=%s can_suspend=%s can_hibernate=%s " \
-                "has_battery=%s has_lcd_brightness=%s has_lid=%s has_sleep_button=%s " \
+                "has_battery=%s has_lcd_brightness=%s max_kbd_brightness=%d has_lid=%s has_sleep_button=%s " \
                 "has_hibernate_button=%s has_power_button=%s",
       xfpm_bool_to_string (has_battery), xfpm_bool_to_string (auth_hibernate),
 	  xfpm_bool_to_string (can_shutdown), xfpm_bool_to_string (auth_suspend),
 	  xfpm_bool_to_string (can_suspend), xfpm_bool_to_string (can_hibernate),
-	  xfpm_bool_to_string (has_lcd_brightness), xfpm_bool_to_string (has_lid),
-	  xfpm_bool_to_string (has_sleep_button), xfpm_bool_to_string (has_hibernate_button),
-	  xfpm_bool_to_string (has_power_button));
+	  xfpm_bool_to_string (has_lcd_brightness), max_kbd_brightness,
+      xfpm_bool_to_string (has_lid), xfpm_bool_to_string (has_sleep_button),
+      xfpm_bool_to_string (has_hibernate_button), xfpm_bool_to_string (has_power_button));
 
     xml = xfpm_builder_new_from_string (xfpm_settings_ui, &error);
     
@@ -2211,7 +2367,7 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
 	xfce_dialog_show_error (NULL, error, "%s", _("Check your power manager installation"));
 	g_error ("%s", error->message);
     }
-    
+
     lcd_brightness = has_lcd_brightness;
     starting_device_id = device_id;
     
@@ -2306,6 +2462,7 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
                          can_suspend,
                          can_hibernate,
                          has_lcd_brightness,
+                         max_kbd_brightness,
                          has_lid);
 
     if ( has_battery )
@@ -2316,6 +2473,7 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
                               can_hibernate,
                               can_shutdown,
                               has_lcd_brightness,
+                              max_kbd_brightness,
                               has_lid);
     else
     {
@@ -2330,6 +2488,15 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"brightness-plugged-in-header")));
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"brightness-level-on-battery")));
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"brightness-inactivity-on-battery")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-on-battery-header2")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-plugged-in-header2")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-on-battery-header1")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-plugged-in-header1")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-battery")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-inactivity-on-battery")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-level-on-battery-dim")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-inactivity-vbox4")));
+    gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"kbd-brightness-vbox4")));
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"system-sleep-on-battery-header")));
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"system-sleep-plugged-in-header")));
 	gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (xml ,"system-sleep-mode-on-battery")));
@@ -2354,6 +2521,12 @@ xfpm_settings_dialog_new (XfconfChannel *channel, gboolean auth_suspend,
     gtk_widget_hide (frame);
     frame = GTK_WIDGET (gtk_builder_get_object (xml, "handle-brightness-keys"));
     gtk_widget_hide (frame);
+    }
+
+    if ( !max_kbd_brightness )
+    {
+        frame = GTK_WIDGET (gtk_builder_get_object (xml, "keyboard-frame"));
+        gtk_widget_hide (frame);
     }
 
     if ( id != 0 )

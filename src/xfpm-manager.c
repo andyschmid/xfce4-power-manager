@@ -955,8 +955,10 @@ GHashTable *xfpm_manager_get_config (XfpmManager *manager)
     gboolean has_power_button = FALSE;
     gboolean has_battery = TRUE;
     gboolean has_lcd_brightness = TRUE;
+    gboolean has_kbd_brightness = FALSE;
     gboolean can_shutdown = TRUE;
     gboolean has_lid = FALSE;
+    gint max_kbd_brightness = 0;
 
     hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
@@ -983,6 +985,10 @@ GHashTable *xfpm_manager_get_config (XfpmManager *manager)
 
     has_battery = xfpm_power_has_battery (manager->priv->power);
     has_lcd_brightness = xfpm_backlight_has_hw (manager->priv->backlight);
+    has_kbd_brightness = xfpm_kbd_backlight_has_hw (manager->priv->kbd_backlight);
+
+    if (has_kbd_brightness)
+        max_kbd_brightness = xfpm_kbd_backlight_get_max_level(manager->priv->kbd_backlight);
 
     mapped_buttons = xfpm_button_get_mapped (manager->priv->button);
 
@@ -1006,6 +1012,7 @@ GHashTable *xfpm_manager_get_config (XfpmManager *manager)
     g_hash_table_insert (hash, g_strdup ("has-lid"), g_strdup (xfpm_bool_to_string (has_lid)));
 
     g_hash_table_insert (hash, g_strdup ("has-brightness"), g_strdup (xfpm_bool_to_string (has_lcd_brightness)));
+    g_hash_table_insert (hash, g_strdup ("max-kbd-brightness"), g_strdup_printf ("%d", max_kbd_brightness));
 
     return hash;
 }

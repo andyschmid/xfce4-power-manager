@@ -29,9 +29,15 @@
 #include <libxfce4util/libxfce4util.h>
 
 #include "xfpm-kbd-backlight.h"
+#include "egg-idletime.h"
 #include "xfpm-button.h"
 #include "xfpm-notify.h"
+#include "xfpm-xfconf.h"
+#include "xfpm-config.h"
 #include "xfpm-power.h"
+#include "xfpm-debug.h"
+
+#define ALARM_DISABLED 9
 
 #define XFPM_KBD_BACKLIGHT_GET_PRIVATE(o) \
 (G_TYPE_INSTANCE_GET_PRIVATE ((o), XFPM_TYPE_KBD_BACKLIGHT, XfpmKbdBacklightPrivate))
@@ -42,13 +48,17 @@ struct XfpmKbdBacklightPrivate
 {
     XfpmPower       *power;
     XfpmButton      *button;
+    EggIdletime     *idle;
+    XfpmXfconf      *conf;
 
     GDBusConnection *bus;
     GDBusProxy      *proxy;
 
     gboolean         dimmed;
+    gboolean	     block;
     gboolean         on_battery;
     gint32           max_level;
+    gint32           last_level;
     gint             min_level;
     gint             step;
 
@@ -67,14 +77,6 @@ calculate_step( gint max_level )
     else
         return max_level / 20;
 }
-
-
-static void
-xfpm_kbd_backlight_on_battery_changed_cb (XfpmPower *power, gboolean on_battery, XfpmKbdBacklight *backlight)
-{
-    backlight->priv->on_battery = on_battery;
-}
-
 
 static void
 xfpm_kbd_backlight_init_max_level (XfpmKbdBacklight *backlight)
@@ -161,12 +163,13 @@ xfpm_kbd_backlight_get_level (XfpmKbdBacklight *backlight)
 }
 
 
-static void
+static gboolean
 xfpm_kbd_backlight_set_level (XfpmKbdBacklight *backlight, gint32 level)
 {
     GError *error = NULL;
     gfloat percent;
     GVariant *var;
+    gboolean ret = TRUE;
 
     var = g_dbus_proxy_call_sync (backlight->priv->proxy, "SetBrightness",
                                   g_variant_new("(i)", level),
@@ -181,11 +184,42 @@ xfpm_kbd_backlight_set_level (XfpmKbdBacklight *backlight, gint32 level)
     {
         g_warning ("Failed to set keyboard brightness level : %s", error->message);
         g_error_free (error);
+        ret = FALSE; // error condition
     }
-    else
+
+    return ret;
+}
+
+static void
+xfpm_kbd_backlight_set_level_from_input (XfpmKbdBacklight *backlight, gint32 level)
+{
+    GError *error = NULL;
+    gfloat percent;
+    GVariant *var;
+    gboolean success;
+
+    success = xfpm_kbd_backlight_set_level (backlight, level);
+
+    if ( success )
     {
         percent = 100.0 * ((gfloat)level / (gfloat)backlight->priv->max_level);
         xfpm_kbd_backlight_show_notification (backlight, percent);
+
+        if (backlight->priv->on_battery)
+        {
+            if (!xfconf_channel_set_uint (xfpm_xfconf_get_channel(backlight->priv->conf),
+                                          PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+                        level))
+            g_critical ("Cannot set value for property %s\n", KBD_BRIGHTNESS_LEVEL_ON_BATTERY);
+        }
+        else
+        {
+            if (!xfconf_channel_set_uint (xfpm_xfconf_get_channel(backlight->priv->conf),
+                                          PROPERTIES_PREFIX KBD_BRIGHTNESS_LEVEL_ON_AC,
+                        level))
+            g_critical ("Cannot set value for property %s\n", KBD_BRIGHTNESS_LEVEL_ON_AC);
+        }
+
     }
 }
 
@@ -207,7 +241,7 @@ xfpm_kbd_backlight_up (XfpmKbdBacklight *backlight)
     if ( level > backlight->priv->max_level )
         level = backlight->priv->max_level;
 
-    xfpm_kbd_backlight_set_level(backlight, level);
+    xfpm_kbd_backlight_set_level_from_input(backlight, level);
 }
 
 
@@ -229,13 +263,163 @@ xfpm_kbd_backlight_down (XfpmKbdBacklight *backlight)
     if ( level < backlight->priv->min_level )
         level = backlight->priv->min_level;
 
-    xfpm_kbd_backlight_set_level(backlight, level);
+    xfpm_kbd_backlight_set_level_from_input(backlight, level);
+}
+
+static void
+xfpm_kbd_backlight_dim_brightness (XfpmKbdBacklight *backlight)
+{
+    gboolean ret;
+
+    gint32 dim_level;
+
+    g_object_get (G_OBJECT (backlight->priv->conf),
+                  backlight->priv->on_battery ? KBD_BRIGHTNESS_LEVEL_ON_BATTERY_DIM : KBD_BRIGHTNESS_LEVEL_ON_AC_DIM, &dim_level,
+                  NULL);
+
+    backlight->priv->last_level = xfpm_kbd_backlight_get_level (backlight);
+
+    if ( backlight->priv->last_level == -1 )
+    {
+        g_warning ("Unable to get current keyboard brightness level");
+        return;
+    }
+
+    /**
+     * Only reduce if the current level is brighter than
+     * the configured dim_level
+     **/
+    if (backlight->priv->last_level > dim_level)
+    {
+        XFPM_DEBUG ("Current keyboard brightness level before dimming : %d, new %d", backlight->priv->last_level, dim_level);
+        backlight->priv->dimmed = xfpm_kbd_backlight_set_level (backlight, dim_level);
+    }
+}
+
+static void
+xfpm_kbd_backlight_alarm_timeout_cb (EggIdletime *idle, guint id, XfpmKbdBacklight *backlight)
+{
+    backlight->priv->block = FALSE;
+
+    if ( id == TIMEOUT_KBD_BRIGHTNESS_ON_AC && !backlight->priv->on_battery)
+        xfpm_kbd_backlight_dim_brightness (backlight);
+    else if ( id == TIMEOUT_KBD_BRIGHTNESS_ON_BATTERY && backlight->priv->on_battery)
+        xfpm_kbd_backlight_dim_brightness (backlight);
+}
+
+static void
+xfpm_kbd_backlight_reset_cb (EggIdletime *idle, XfpmKbdBacklight *backlight)
+{
+    if ( backlight->priv->dimmed)
+    {
+        if ( !backlight->priv->block)
+        {
+            XFPM_DEBUG ("Alarm reset, setting level to %d", backlight->priv->last_level);
+            xfpm_kbd_backlight_set_level (backlight, backlight->priv->last_level);
+        }
+        backlight->priv->dimmed = FALSE;
+    }
+}
+
+static void
+xfpm_kbd_backlight_brightness_on_battery_settings_changed (XfpmKbdBacklight *backlight)
+{
+    guint level;
+
+    g_object_get (G_OBJECT (backlight->priv->conf),
+                  KBD_BRIGHTNESS_LEVEL_ON_BATTERY, &level,
+                  NULL);
+
+    if (backlight->priv->on_battery && !backlight->priv->dimmed)
+        xfpm_kbd_backlight_set_level (backlight, level);
+}
+
+static void
+xfpm_kbd_backlight_brightness_on_ac_settings_changed (XfpmKbdBacklight *backlight)
+{
+    guint level;
+
+    g_object_get (G_OBJECT (backlight->priv->conf),
+                  KBD_BRIGHTNESS_LEVEL_ON_AC, &level,
+                  NULL);
+
+    if (!backlight->priv->on_battery && !backlight->priv->dimmed)
+        xfpm_kbd_backlight_set_level (backlight, level);
 }
 
 
 static void
+xfpm_kbd_backlight_inactivity_on_ac_settings_changed (XfpmKbdBacklight *backlight)
+{
+    guint timeout_on_ac;
+
+    g_object_get (G_OBJECT (backlight->priv->conf),
+                  KBD_BRIGHTNESS_ON_AC_TIMEOUT, &timeout_on_ac,
+                  NULL);
+
+    XFPM_DEBUG ("Alarm on ac timeout changed %u", timeout_on_ac);
+
+    if ( timeout_on_ac == ALARM_DISABLED )
+    {
+        egg_idletime_alarm_remove (backlight->priv->idle, TIMEOUT_KBD_BRIGHTNESS_ON_AC );
+    }
+    else
+    {
+        egg_idletime_alarm_set (backlight->priv->idle, TIMEOUT_KBD_BRIGHTNESS_ON_AC, timeout_on_ac * 1000);
+    }
+}
+
+static void
+xfpm_kbd_backlight_inactivity_on_battery_settings_changed (XfpmKbdBacklight *backlight)
+{
+    guint timeout_on_battery ;
+
+    g_object_get (G_OBJECT (backlight->priv->conf),
+                  KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT, &timeout_on_battery,
+                  NULL);
+
+    XFPM_DEBUG ("Alarm on battery timeout changed %u", timeout_on_battery);
+
+    if ( timeout_on_battery == ALARM_DISABLED )
+    {
+        egg_idletime_alarm_remove (backlight->priv->idle, TIMEOUT_KBD_BRIGHTNESS_ON_BATTERY );
+    }
+    else
+    {
+        egg_idletime_alarm_set (backlight->priv->idle, TIMEOUT_KBD_BRIGHTNESS_ON_BATTERY, timeout_on_battery * 1000);
+    }
+}
+
+static void
+xfpm_kbd_backlight_set_brightness (XfpmKbdBacklight *backlight)
+{
+    xfpm_kbd_backlight_brightness_on_battery_settings_changed(backlight);
+    xfpm_kbd_backlight_brightness_on_ac_settings_changed(backlight);
+}
+
+static void
+xfpm_kbd_backlight_on_battery_changed_cb (XfpmPower *power, gboolean on_battery, XfpmKbdBacklight *backlight)
+{
+    backlight->priv->on_battery = on_battery;
+
+    xfpm_kbd_backlight_set_brightness(backlight);
+}
+
+static void
+xfpm_kbd_backlight_set_timeouts (XfpmKbdBacklight *backlight)
+{
+    xfpm_kbd_backlight_inactivity_on_ac_settings_changed (backlight);
+    xfpm_kbd_backlight_inactivity_on_battery_settings_changed (backlight);
+}
+
+static void
 xfpm_kbd_backlight_button_pressed_cb (XfpmButton *button, XfpmButtonKey type, XfpmKbdBacklight *backlight)
 {
+    if ( type != BUTTON_KBD_BRIGHTNESS_UP && type != BUTTON_KBD_BRIGHTNESS_DOWN )
+        return; /* sanity check, can this ever happen? */
+
+    backlight->priv->block = TRUE;
+
     if ( type == BUTTON_KBD_BRIGHTNESS_UP )
     {
         xfpm_kbd_backlight_up (backlight);
@@ -268,12 +452,15 @@ xfpm_kbd_backlight_init (XfpmKbdBacklight *backlight)
     backlight->priv->bus = NULL;
     backlight->priv->proxy = NULL;
     backlight->priv->power = NULL;
+    backlight->priv->conf   = NULL;
     backlight->priv->button = NULL;
     backlight->priv->dimmed = FALSE;
+    backlight->priv->idle   = NULL;
     backlight->priv->on_battery = FALSE;
     backlight->priv->max_level = 0;
     backlight->priv->min_level = 0;
     backlight->priv->notify = NULL;
+    backlight->priv->block = FALSE;
     backlight->priv->n = NULL;
 
     backlight->priv->bus = g_bus_get_sync (G_BUS_TYPE_SYSTEM, NULL, &error);
@@ -309,6 +496,14 @@ xfpm_kbd_backlight_init (XfpmKbdBacklight *backlight)
     backlight->priv->power = xfpm_power_get ();
     backlight->priv->button = xfpm_button_new ();
     backlight->priv->notify = xfpm_notify_new ();
+    backlight->priv->idle   = egg_idletime_new ();
+    backlight->priv->conf   = xfpm_xfconf_new ();
+
+    g_signal_connect (backlight->priv->idle, "alarm-expired",
+                      G_CALLBACK (xfpm_kbd_backlight_alarm_timeout_cb), backlight);
+
+    g_signal_connect (backlight->priv->idle, "reset",
+                      G_CALLBACK(xfpm_kbd_backlight_reset_cb), backlight);
 
     g_signal_connect (backlight->priv->button, "button-pressed",
                       G_CALLBACK (xfpm_kbd_backlight_button_pressed_cb), backlight);
@@ -319,6 +514,23 @@ xfpm_kbd_backlight_init (XfpmKbdBacklight *backlight)
     g_object_get (G_OBJECT (backlight->priv->power),
                   "on-battery", &backlight->priv->on_battery,
                   NULL);
+
+    g_signal_connect_swapped (backlight->priv->conf, "notify::" KBD_BRIGHTNESS_ON_AC_TIMEOUT,
+            G_CALLBACK (xfpm_kbd_backlight_inactivity_on_ac_settings_changed), backlight);
+
+    g_signal_connect_swapped (backlight->priv->conf, "notify::" KBD_BRIGHTNESS_ON_BATTERY_TIMEOUT,
+            G_CALLBACK (xfpm_kbd_backlight_inactivity_on_battery_settings_changed), backlight);
+
+    g_signal_connect_swapped (backlight->priv->conf, "notify::" KBD_BRIGHTNESS_LEVEL_ON_AC,
+            G_CALLBACK (xfpm_kbd_backlight_brightness_on_ac_settings_changed), backlight);
+
+    g_signal_connect_swapped (backlight->priv->conf, "notify::" KBD_BRIGHTNESS_LEVEL_ON_BATTERY,
+            G_CALLBACK (xfpm_kbd_backlight_brightness_on_battery_settings_changed), backlight);
+
+    xfpm_kbd_backlight_set_timeouts (backlight);
+    xfpm_kbd_backlight_set_brightness(backlight);
+
+    backlight->priv->last_level = xfpm_kbd_backlight_get_level (backlight);
 
 out:
     ;
@@ -331,6 +543,12 @@ xfpm_kbd_backlight_finalize (GObject *object)
     XfpmKbdBacklight *backlight = NULL;
 
     backlight = XFPM_KBD_BACKLIGHT (object);
+
+    if ( backlight->priv->idle )
+        g_object_unref (backlight->priv->idle);
+
+    if ( backlight->priv->conf )
+        g_object_unref (backlight->priv->conf);
 
     if ( backlight->priv->power )
         g_object_unref (backlight->priv->power );
@@ -366,4 +584,9 @@ xfpm_kbd_backlight_new (void)
 gboolean xfpm_kbd_backlight_has_hw (XfpmKbdBacklight *backlight)
 {
     return ( backlight->priv->proxy == NULL ) ? FALSE : TRUE;
+}
+
+gint xfpm_kbd_backlight_get_max_level (XfpmKbdBacklight *backlight)
+{
+    return backlight->priv->max_level;
 }
